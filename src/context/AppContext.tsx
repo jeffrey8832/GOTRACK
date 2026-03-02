@@ -4,21 +4,21 @@ import { DEFAULT_CATEGORIES } from '../constants';
 
 interface AppContextType {
   user: User | null;
-  login: (email: string, name: string) => void;
+  login: (email: string, name: string) => Promise<void>;
   logout: () => void;
   
   transactions: Transaction[];
-  addTransaction: (t: Omit<Transaction, 'id'>) => void;
-  updateTransaction: (t: Transaction) => void;
-  deleteTransaction: (id: string) => void;
+  addTransaction: (t: Omit<Transaction, 'id'>) => Promise<void>;
+  updateTransaction: (t: Transaction) => Promise<void>;
+  deleteTransaction: (id: string) => Promise<void>;
   
   categories: Category[];
-  addCategory: (c: Omit<Category, 'id'>) => void;
+  addCategory: (c: Omit<Category, 'id'>) => Promise<void>;
   
   budgets: Budget[];
-  addBudget: (b: Omit<Budget, 'id'>) => void;
-  updateBudget: (b: Budget) => void;
-  deleteBudget: (id: string) => void;
+  addBudget: (b: Omit<Budget, 'id'>) => Promise<void>;
+  updateBudget: (b: Budget) => Promise<void>;
+  deleteBudget: (id: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -29,72 +29,169 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return saved ? JSON.parse(saved) : null;
   });
 
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('et_transactions');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [categories, setCategories] = useState<Category[]>(() => {
-    const saved = localStorage.getItem('et_categories');
-    return saved ? JSON.parse(saved) : DEFAULT_CATEGORIES;
-  });
-
-  const [budgets, setBudgets] = useState<Budget[]>(() => {
-    const saved = localStorage.getItem('et_budgets');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [categories, setCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
 
   useEffect(() => {
-    if (user) localStorage.setItem('et_user', JSON.stringify(user));
-    else localStorage.removeItem('et_user');
+    if (user) {
+      localStorage.setItem('et_user', JSON.stringify(user));
+      fetchData(user.id);
+    } else {
+      localStorage.removeItem('et_user');
+      setTransactions([]);
+      setCategories(DEFAULT_CATEGORIES);
+      setBudgets([]);
+    }
   }, [user]);
 
-  useEffect(() => {
-    localStorage.setItem('et_transactions', JSON.stringify(transactions));
-  }, [transactions]);
+  const fetchData = async (userId: string) => {
+    try {
+      const res = await fetch('/api/data', {
+        headers: { 'user-id': userId }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTransactions(data.transactions);
+        setCategories([...DEFAULT_CATEGORIES, ...data.categories]);
+        setBudgets(data.budgets);
+      }
+    } catch (error) {
+      console.error('Failed to fetch data', error);
+    }
+  };
 
-  useEffect(() => {
-    localStorage.setItem('et_categories', JSON.stringify(categories));
-  }, [categories]);
-
-  useEffect(() => {
-    localStorage.setItem('et_budgets', JSON.stringify(budgets));
-  }, [budgets]);
-
-  const login = (email: string, name: string) => {
-    setUser({ id: crypto.randomUUID(), email, name, baseCurrency: 'USD' });
+  const login = async (email: string, name: string) => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name })
+      });
+      if (res.ok) {
+        const userData = await res.json();
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error('Login failed', error);
+    }
   };
 
   const logout = () => {
     setUser(null);
   };
 
-  const addTransaction = (t: Omit<Transaction, 'id'>) => {
-    setTransactions(prev => [...prev, { ...t, id: crypto.randomUUID() }]);
+  const addTransaction = async (t: Omit<Transaction, 'id'>) => {
+    if (!user) return;
+    const newTx = { ...t, id: crypto.randomUUID() };
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'user-id': user.id },
+        body: JSON.stringify(newTx)
+      });
+      if (res.ok) {
+        setTransactions(prev => [...prev, newTx]);
+      }
+    } catch (error) {
+      console.error('Failed to add transaction', error);
+    }
   };
 
-  const updateTransaction = (t: Transaction) => {
-    setTransactions(prev => prev.map(tr => tr.id === t.id ? t : tr));
+  const updateTransaction = async (t: Transaction) => {
+    if (!user) return;
+    try {
+      const res = await fetch(`/api/transactions/${t.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'user-id': user.id },
+        body: JSON.stringify(t)
+      });
+      if (res.ok) {
+        setTransactions(prev => prev.map(tr => tr.id === t.id ? t : tr));
+      }
+    } catch (error) {
+      console.error('Failed to update transaction', error);
+    }
   };
 
-  const deleteTransaction = (id: string) => {
-    setTransactions(prev => prev.filter(tr => tr.id !== id));
+  const deleteTransaction = async (id: string) => {
+    if (!user) return;
+    try {
+      const res = await fetch(`/api/transactions/${id}`, {
+        method: 'DELETE',
+        headers: { 'user-id': user.id }
+      });
+      if (res.ok) {
+        setTransactions(prev => prev.filter(tr => tr.id !== id));
+      }
+    } catch (error) {
+      console.error('Failed to delete transaction', error);
+    }
   };
 
-  const addCategory = (c: Omit<Category, 'id'>) => {
-    setCategories(prev => [...prev, { ...c, id: `cat-custom-${crypto.randomUUID()}` }]);
+  const addCategory = async (c: Omit<Category, 'id'>) => {
+    if (!user) return;
+    const newCat = { ...c, id: `cat-custom-${crypto.randomUUID()}` };
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'user-id': user.id },
+        body: JSON.stringify(newCat)
+      });
+      if (res.ok) {
+        setCategories(prev => [...prev, newCat]);
+      }
+    } catch (error) {
+      console.error('Failed to add category', error);
+    }
   };
 
-  const addBudget = (b: Omit<Budget, 'id'>) => {
-    setBudgets(prev => [...prev, { ...b, id: crypto.randomUUID() }]);
+  const addBudget = async (b: Omit<Budget, 'id'>) => {
+    if (!user) return;
+    const newBudget = { ...b, id: crypto.randomUUID() };
+    try {
+      const res = await fetch('/api/budgets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'user-id': user.id },
+        body: JSON.stringify(newBudget)
+      });
+      if (res.ok) {
+        setBudgets(prev => [...prev, newBudget]);
+      }
+    } catch (error) {
+      console.error('Failed to add budget', error);
+    }
   };
 
-  const updateBudget = (b: Budget) => {
-    setBudgets(prev => prev.map(bg => bg.id === b.id ? b : bg));
+  const updateBudget = async (b: Budget) => {
+    if (!user) return;
+    try {
+      const res = await fetch(`/api/budgets/${b.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'user-id': user.id },
+        body: JSON.stringify(b)
+      });
+      if (res.ok) {
+        setBudgets(prev => prev.map(bg => bg.id === b.id ? b : bg));
+      }
+    } catch (error) {
+      console.error('Failed to update budget', error);
+    }
   };
 
-  const deleteBudget = (id: string) => {
-    setBudgets(prev => prev.filter(bg => bg.id !== id));
+  const deleteBudget = async (id: string) => {
+    if (!user) return;
+    try {
+      const res = await fetch(`/api/budgets/${id}`, {
+        method: 'DELETE',
+        headers: { 'user-id': user.id }
+      });
+      if (res.ok) {
+        setBudgets(prev => prev.filter(bg => bg.id !== id));
+      }
+    } catch (error) {
+      console.error('Failed to delete budget', error);
+    }
   };
 
   return (
