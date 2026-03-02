@@ -1,0 +1,5 @@
+{
+  "name": "Expense Tracker",
+  "description": "An application to record and summarize monthly expenses.",
+  "requestFramePermissions": []
+}
